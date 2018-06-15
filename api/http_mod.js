@@ -3,13 +3,13 @@ var mongodb=require('mongodb')
 var cheerio=require('cheerio')
 var fs = require("fs");
 // var mongod_mod=require('./mongod_mod')
-var db,db_home
+var db,db_home,db_goods
 // post_body()
 // download('https://p1.ssl.qhimg.com/d/inn/ab9df40c/so.png','222.jpg','../img/home/')
 console.log(encodeURI('进口'))
 // console.log(decodeURI('%E8%BF%9B%E5%8F%A3'))
 // getHTML_ID('http://product.bl.com/3189100.html?bl_ad=P668824_-_%u536B%u751F%u5DFE_-_5')
-maxImg(3377609)
+// maxImg(3377609)
 var p=new Promise(function(resolve,rejected){
     mongodb.connect('mongodb://localhost:27017/',function(err,c){
             if(err){
@@ -17,22 +17,25 @@ var p=new Promise(function(resolve,rejected){
             }else{
                 db=c.db('bailian')
                 db_home=db.collection('home')
+                db_goods=db.collection('goods')
                 // resolve()
             }
         })
-    // resolve()
+    resolve()
 // 'http://www.bl.com/js/mdata/group.html'
 }).then(function(resolve,rejected){
     // home()
-    post_list('生鲜',(data)=>{
-        console.log(data)
+    // post_list('生鲜',(data)=>{
+    //     console.log(data)
              
-    })
+    // })
     // http://www.bl.com/js/mdata/floor2.html
+    p_list('家清')
 })
 
 //下载地址,文件名,保存目录
 function download(url,name,url_r,fn){
+    // console.log(fn)
     console.log('开始下载',name)
     request.get(url)
     .on('response', function(response) {
@@ -42,9 +45,15 @@ function download(url,name,url_r,fn){
             fn()
         }else{
             console.log('重试')
-            download(url,name,url_r)
+            download(url,name,url_r,fn)
         }
       })
+    .on('error',function(err){
+        console.log(err)
+        console.log('重试')
+        download(url,name,url_r,fn)
+        
+    })
     .pipe(fs.createWriteStream(url_r+name))
 }
 //
@@ -96,7 +105,75 @@ function err_(err){
 //POST
 //productid: 3377609
 //返回div
+//
+function p_list(mane){
+    console.log('开始抓取',mane)
+    post_list(mane,function(data){
+        var arr_url=data
+        var i=-1
+        var data_list
+        db_goods.find().toArray((err,jg)=>{
+            data_list=jg.map(function(obj){
+                return obj.id;
+            })
+            console.log('数据库列表',data_list)
+            dg()
+        })
+        function dg(){
+            i++
+            if(i>=arr_url.length){
+                console.log('全部完成')
+                return 0;
+            }
+            var _data={},id=getHTML_ID(arr_url[i])
+            console.log('id>>',id)
+            for(var i_sz=0;i_sz<data_list.length;i_sz++){
+                if(id==data_list[i_sz]){
+                    console.log('跳过>>>',id)
+                    id=-1
+                    break;
+                }
+            }
+            if(id<0){
+                dg()
+                return 0;
+            }
+            //获取大图
+            maxImg(id,function(arr_url){
+                _data['img']=arr_url
+                     
+                //获取商品属性
+                goodsattr(id,function(attr){
+                    console.log(attr)
+                    console.log(1)
+                    _data['title']=attr.name
+                    _data['title_ad']='赠品数量有限，赠完为止'
+                    _data['price']=attr.price
+                    _data['id']=id
+                    _data['reference']=attr.price*1.2
+                    _data['num']=attr.categoryId
+                    _data['prescription']='满999减100元'
+                    _data['type']=mane
+                    //获取详情页
+                    goodsinit(id,function(div){
+                        _data['introduce']=div
+                        //写入数据库
+                        db_goods.insertOne(_data,function(err,res){
+                            if(!err){
+                                console.log('写入数据库成功>>'+id)
+                                dg()
+                            }
+                        })
+                    })
+                })
+            })
+        }
+        
+    })
+}
+// 获取商品表页
 function post_list(mane,fn){
+    console.log('获取商品表页')
     var obj={
         url:'http://search.bl.com/js/mainGoodList.html',
         form:{
@@ -146,34 +223,98 @@ function post_list(mane,fn){
 
 }
 //获取商品大图片
-function maxImg(id){
-    console.log('正在获取>>.')
+function maxImg(id,fn){
+    console.log('正在获取大图列表>>')
+    var url_r='../img/goods/800x800/'
     var obj={
             url:'http://product.bl.com/json/getPicture.html',
             form:{productid: id}
         }
+    var arr_url=[]
     request.post(obj,function(err,res,data){
-        
         if(err){
             console.log('重试>')
-            maxImg(id)
+            maxImg(id,fn)
         }else{
+            // console.log(data)
+            data=JSON.parse(data)
             console.log(data)
-            console.log(JSON.parse(data))
             var num=0
-            download()
-                 
+            // download(data[num].L.name,)
+            console.log(data[num])
+            if(data[num].L){
+                download(data[num].L.url,id+'_'+num+'.jpg',url_r,xz)
+                arr_url.push(url_r.slice(3)+id+'_'+num+'.jpg')
+            }else{
+                xz()
+            }
+            
+            function xz(){
+                num++
+                if(num<data.length && data[num].L){
+                        arr_url.push(url_r.slice(3)+id+'_'+num+'.jpg')
+                        console.log(data[num])
+                        download(data[num].L.url,id+'_'+num+'.jpg',url_r,xz)
+                }else{
+                    console.log('商品大图下载完成>'+id) 
+                    fn(arr_url)
+                }
+            }
         }
     })
-
-
 }
-
+//商品价格属性
+function goodsattr(id,fn){
+    console.log('价格属性')
+    var obj={
+            url:'http://product.bl.com/cms/json/getTrace.html',
+            form:{cook:id}
+        }
+    request.post(obj,function(err,res,data){
+        if(!err){
+            data=JSON.parse(data)
+            if(data.length==0){
+                request.get('http://product.bl.com/'+id+'.html',function(err,head,body){
+                    var $=cheerio.load(body)
+                    data=[{
+                        name:$('h1').text(),
+                        price:$('#FlashPrice').text().slice(5),
+                        categoryId:id
+                    }]
+                    fn(data[0])
+                })
+            }else{
+                fn(data[0])
+            }
+            
+        }else{
+            console.log('商品价格属性获取失败>>正在重试')                 
+            goodsattr(id,fn)
+        }
+    })
+}
+//商品详情
+function goodsinit(id,fn){
+    console.log('商品详情')
+    var obj={
+            url:'http://product.bl.com/json/getDescribe.html',
+            form:{productid:id}
+        }
+    request.post(obj,function(err,res,data){
+        if(!err){
+            fn(data)
+        }else{
+            console.log('商品详情获取失败>>正在重试')                 
+            goodsinit(id,fn)
+        }
+    })
+}
+//获取html中的id
 function getHTML_ID(url){
     url=url.split('?')
     url=url[0].split('/')
     url=url[url.length-1].split('.')
-    console.log(url[0])
+    // console.log(url[0])
     return url[0];
          
 }

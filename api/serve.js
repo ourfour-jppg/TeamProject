@@ -27,7 +27,27 @@ app.get('/api/home',function(req,res,err){
     var p=new Promise(function(resolve,rejected){
         //搜索home里所有文档并且升序
         db_home.find().sort({ order: 1}).toArray(function(err,data){
-            res.json(data)
+            //猜猜你喜欢
+            var cc
+            db_goods.find().limit(50).sort({price:1}).toArray((err,j)=>{
+                cc={
+                     title:'猜你喜欢',
+                     promotion:j.map(function(obj){
+                                    return {
+                                        img:obj.img,
+                                        title:obj.title,
+                                        price:obj.price,
+                                        reference:obj.price,
+                                        id:obj.id,
+                                    };
+                                })
+                }
+                
+                console.log(cc)
+                data.push(cc)
+                res.json(data)
+            })
+            
         })
 
     }).then((resolve,rejected)=>{
@@ -38,7 +58,6 @@ app.get('/api/home',function(req,res,err){
 app.post('/api/login',function(req,res,err){
     console.log('login>>',req.body)
     var ur=req.body.user,pawd=req.body.password
-    
     res.append('Access-Control-Allow-Origin','*')
     db_user.find({user:ur,password:pawd}).toArray(function(err,data){
         var res_data={
@@ -105,10 +124,10 @@ app.post('/api/register',function(req,res,err){
 })
 //购物车
 app.post('/api/shoppingcart',function(req,res,err){
-//way=get&id=001&data=json字串
-//way
-//  get 为获取
-//  set 为保存
+    //way=get&id=001&data=json字串
+    //way
+    //  get 为获取
+    //  set 为保存
     console.log('shoppingcart>>',req.body)
     res.append('Access-Control-Allow-Origin','*')
     var r_data={
@@ -138,8 +157,79 @@ app.post('/api/shoppingcart',function(req,res,err){
             }
         })
     }
-    
+})
+//商品
+app.post('/api/goods',function(req,res,err){
+    console.log('login>>',req.body)
+    var _data={
+        id:req.body.id
+        }
+    res.append('Access-Control-Allow-Origin','*')
+    db_goods.find({id:_data.id}).toArray(function(err,data){
+        res.json(data)
+    })
+})
+//搜索
+app.post('/api/quire',function(req,res,err){
+    console.log('quire>>',req.body)
+    var _data={
+        inquire:req.body.inquire,//要模糊搜索的文字
+        start:req.body.start,//开始位置
+        num:req.body.num,//读取数量
+        sort:req.body.sort,//排序1为正序0为倒序不带此参数则默认
+        maxprice:req.body.maxprice,//最大价格
+        mixprice:req.body.mixprice,//最小价格
+        type:req.body.type//类型
+        }
+    res.append('Access-Control-Allow-Origin','*')
+    var ep= new RegExp(_data.inquire,'ig')
+        if(_data.maxprice!=undefined){
+            //价格分段
+            var g=db_goods.find({$or:[{title:ep},{type:ep}],price:{$gt:Number(_data.mixprice)},price:{$lt:Number(_data.maxprice)}})
+        }else{
+            //默认
+            var g=db_goods.find({$or:[{title:ep},{type:ep}]})
+        }
+        //排序
+        if(_data.sort!=undefined){
+            if(Number(_data.sort)==0){
+                _data.sort=-1
+            }else{
+                _data.sort=1
+            }
+            // console.log('排序q',g)
+            g=g.sort({price:_data.sort})
+            console.log('排序',g)
+            // console.log(1)
+                 
+
+        }
+        //分页
+        if(_data.start!=undefined ){
+            console.log(_data.start)
+            g=g.skip(Number(_data.start)).limit(Number(_data.num))
+        }
+        g.toArray(function(err,data){
+            console.log(data)
+                 
+            var j_g=[]
+            for(var i=0;i<data.length;i++){
+                var _data_1={
+                    img:data[i].img,
+                    title:data[i].title,
+                    title_ad:data[i].title_ad,
+                    price:data[i].price,
+                    id:data[i].id,
+                    }
+                j_g.push(_data_1)
+            }
+            var ret={
+                start:_data.start?_data.start:0,//数据库里的位置
+                sum:j_g.length,//结果总数量
+                data:j_g
+                }
+            res.json(ret)
+        })
 
 })
-
 app.listen(1803);
